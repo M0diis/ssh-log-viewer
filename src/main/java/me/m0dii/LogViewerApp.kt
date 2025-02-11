@@ -3,6 +3,8 @@ package me.m0dii
 import com.jcraft.jsch.JSch
 import kotlinx.coroutines.*
 import java.awt.*
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -23,26 +25,26 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
     private val pathList = JList(pathListModel)
     private val addPathButton = JButton("Add Path")
     private val removePathButton = JButton("Remove Path")
+    private val wrapTextCheckbox = JCheckBox("Wrap text")
 
     private val searchField = JTextField("", 15)
     private val fetchButton = JButton("Fetch Logs")
-    private val logArea = JTextArea()
     private val filterField = JTextField("", 15)
     private val stopButton = JButton("Stop Fetching")
     private val clearButton = JButton("Clear")
     private val hitCountLabel = JLabel("Hits: 0")
+    private val statusLabel = JLabel("Status: Idle")
+    private val tabbedPane = JTabbedPane()
+
+    private val searchReplaceField = JTextField("", 15)
+    private val replaceField = JTextField("", 15)
+    private val replaceButton = JButton("Replace")
 
     private var debounceJob: Job? = null
-    private val logs = StringBuilder()
     private val stopFetching = AtomicBoolean(false)
     private val activeSessions = mutableListOf<com.jcraft.jsch.Session>()
 
     init {
-        JSch.setConfig("server_host_key", "ssh-ed25519");
-
-        pathListModel.addElement("/home/username/*.log")
-        pathListModel.addElement("/var/log/*.gz")
-
         defaultCloseOperation = EXIT_ON_CLOSE
         setSize(1000, 800)
         layout = BorderLayout()
@@ -94,29 +96,57 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
         lc.gridy = 9
         leftPanel.add(filterField, lc)
 
-        // Hosts Panel
-        val middlePanel = JPanel(GridBagLayout())
-        val mc = GridBagConstraints()
-        mc.insets = Insets(5, 5, 5, 5)
-        mc.fill = GridBagConstraints.HORIZONTAL
+        // Wrap Length and Search and Replace Panel
+        val middleLeftPanel = JPanel(GridBagLayout())
+        val mlc = GridBagConstraints()
+        mlc.insets = Insets(5, 5, 5, 5)
+        mlc.fill = GridBagConstraints.HORIZONTAL
 
-        mc.gridx = 0
-        mc.gridy = 0
-        middlePanel.add(JLabel("Hosts:").apply { font = labelFont }, mc)
-        mc.gridx = 0
-        mc.gridy = 1
-        mc.gridwidth = 2
-        mc.gridheight = 2
+        mlc.gridx = 0
+        mlc.gridy = 1
+        middleLeftPanel.add(wrapTextCheckbox, mlc)
+
+        mlc.gridx = 0
+        mlc.gridy = 2
+        middleLeftPanel.add(JLabel("Search:").apply { font = labelFont }, mlc)
+        mlc.gridx = 0
+        mlc.gridy = 3
+        middleLeftPanel.add(searchReplaceField, mlc)
+
+        mlc.gridx = 0
+        mlc.gridy = 4
+        middleLeftPanel.add(JLabel("Replace:").apply { font = labelFont }, mlc)
+        mlc.gridx = 0
+        mlc.gridy = 5
+        middleLeftPanel.add(replaceField, mlc)
+
+        mlc.gridx = 0
+        mlc.gridy = 6
+        middleLeftPanel.add(replaceButton, mlc)
+
+        // Hosts Panel
+        val middleRightPanel = JPanel(GridBagLayout())
+        val mrc = GridBagConstraints()
+        mrc.insets = Insets(5, 5, 5, 5)
+        mrc.fill = GridBagConstraints.HORIZONTAL
+
+        mrc.gridx = 0
+        mrc.gridy = 0
+        middleRightPanel.add(JLabel("Hosts:").apply { font = labelFont }, mrc)
+        mrc.gridx = 0
+        mrc.gridy = 1
+        mrc.gridwidth = 2
+        mrc.gridheight = 2
         val hostScrollPane = JScrollPane(hostList)
         hostScrollPane.preferredSize = Dimension(200, 205)
-        middlePanel.add(hostScrollPane, mc)
-        mc.gridwidth = 1
-        mc.gridheight = 1
-        mc.gridx = 0
-        mc.gridy = 3
-        middlePanel.add(addHostButton, mc)
-        mc.gridx = 1
-        middlePanel.add(removeHostButton, mc)
+        middleRightPanel.add(hostScrollPane, mrc)
+        mrc.gridwidth = 1
+        mrc.gridheight = 1
+        mrc.gridx = 0
+        mrc.gridy = 3
+        middleRightPanel.add(addHostButton, mrc)
+        mrc.gridx = 1
+        middleRightPanel.add(removeHostButton, mrc)
 
         // Log File Paths Panel
         val rightPanel = JPanel(GridBagLayout())
@@ -147,8 +177,10 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
         c.gridy = 0
         inputPanel.add(leftPanel, c)
         c.gridx = 1
-        inputPanel.add(middlePanel, c)
+        inputPanel.add(middleLeftPanel, c)
         c.gridx = 2
+        inputPanel.add(middleRightPanel, c)
+        c.gridx = 3
         inputPanel.add(rightPanel, c)
 
         val buttonPanel = JPanel(FlowLayout())
@@ -156,12 +188,11 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
         buttonPanel.add(stopButton)
         buttonPanel.add(clearButton)
         buttonPanel.add(hitCountLabel)
+        buttonPanel.add(statusLabel)
 
         add(inputPanel, BorderLayout.NORTH)
         add(buttonPanel, BorderLayout.SOUTH)
-
-        logArea.isEditable = false
-        add(JScrollPane(logArea), BorderLayout.CENTER)
+        add(tabbedPane, BorderLayout.CENTER)
 
         fetchButton.addActionListener {
             fetchLogs()
@@ -172,10 +203,24 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
         }
 
         clearButton.addActionListener {
-            logArea.text = ""
+            tabbedPane.removeAll()
             hitCountLabel.text = "Hits: 0"
-            logs.clear()
         }
+
+        tabbedPane.addChangeListener {
+            filterLogs(filterField.text)
+        }
+
+        tabbedPane.addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                if (SwingUtilities.isMiddleMouseButton(e)) {
+                    val tabIndex = tabbedPane.indexAtLocation(e.x, e.y)
+                    if (tabIndex != -1) {
+                        tabbedPane.remove(tabIndex)
+                    }
+                }
+            }
+        })
 
         addHostButton.addActionListener {
             val host = JOptionPane.showInputDialog(this, "Enter Host:")
@@ -217,19 +262,23 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
                 privateKeyFile = fileChooser.selectedFile
             }
         }
+
+        replaceButton.addActionListener {
+            replaceText()
+        }
     }
 
     private fun fetchLogs() {
         if (hostListModel.isEmpty || pathListModel.isEmpty) {
-            logArea.text = "Please add at least one host and log path."
+            JOptionPane.showMessageDialog(this, "Please add at least one host and log path.")
             return
         }
 
         stopFetching.set(false) // Reset the stopFetching flag
 
         fetchButton.isEnabled = false
-        logArea.text = "Fetching logs... \n\n"
         hitCountLabel.text = "Hits: 0"
+        statusLabel.text = "Status: Fetching..."
 
         CoroutineScope(Dispatchers.IO).launch {
             val hosts = hostListModel.elements().toList()
@@ -246,9 +295,11 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
 
             withContext(Dispatchers.Main) {
                 fetchButton.isEnabled = true
+                statusLabel.text = "Status: Fetching complete"
             }
         }
     }
+
     private suspend fun fetchLogsFromServers(
         hosts: List<String>,
         user: String,
@@ -258,12 +309,26 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
         searchQuery: String
     ) {
         for (host in hosts) {
-            for (path in paths) {
-                if (stopFetching.get()) {
-                    return
+            if (stopFetching.get()) {
+                withContext(Dispatchers.Main) {
+                    statusLabel.text = "Status: Fetching stopped"
                 }
+                return
+            }
 
-                fetchLogsFromServer(host, user, password, privateKey, path, searchQuery)
+            val logArea = JTextArea()
+                .apply { font = Font("Monospaced", Font.PLAIN, 12) }
+
+            logArea.isEditable = true
+            logArea.lineWrap = wrapTextCheckbox.isSelected
+            logArea.wrapStyleWord = wrapTextCheckbox.isSelected
+            val scrollPane = JScrollPane(logArea)
+            withContext(Dispatchers.Main) {
+                tabbedPane.addTab(host, scrollPane)
+            }
+
+            for (path in paths) {
+                fetchLogsFromServer(host, user, password, privateKey, path, searchQuery, logArea)
             }
         }
     }
@@ -274,7 +339,8 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
         password: String,
         privateKey: File?,
         logPath: String,
-        searchQuery: String
+        searchQuery: String,
+        logArea: JTextArea
     ) {
         val jsch = JSch()
         if (privateKey != null) {
@@ -327,18 +393,34 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
     }
 
     private fun filterLogs(filter: String) {
-        val filteredText = if (filter.isNotEmpty()) {
-            logs.lines().filter { it.contains(filter, ignoreCase = true) }.joinToString("\n")
+        if (filter.isNotEmpty()) {
+            tabbedPane.components.forEach { pane ->
+                val scrollPane = pane as JScrollPane
+                val logArea = scrollPane.viewport.view as JTextArea
+                val logs = logArea.text
+                val filteredLogs = logs.lines()
+                    .filter { it.contains(filter, ignoreCase = true) }
+                    .joinToString("\n")
+                logArea.text = filteredLogs
+            }
         } else {
-            logs.toString()
+            tabbedPane.components.forEach {
+                val scrollPane = it as JScrollPane
+                val logArea = scrollPane.viewport.view as JTextArea
+                val logs = logArea.text
+                logArea.text = logs
+            }
         }
 
-        if (filteredText.isEmpty()) {
-            logArea.text = "No results found."
-            return
+        val hitCount = tabbedPane.components.sumOf {
+            val scrollPane = it as JScrollPane
+            val logArea = scrollPane.viewport.view as JTextArea
+            logArea.text.lines().size
         }
 
-        logArea.text = appendLineNumbers(filteredText)
+        hitCountLabel.text = "Hits: $hitCount"
+
+        tabbedPane.repaint()
     }
 
     private fun appendLineNumbers(logs: String): String {
@@ -354,6 +436,19 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
         debounceJob = CoroutineScope(Dispatchers.Main).launch {
             delay(300)
             filterLogs(filterField.text)
+        }
+    }
+
+    private fun replaceText() {
+        val searchText = searchReplaceField.text
+        val replaceText = replaceField.text
+
+        tabbedPane.components.forEach {
+            val scrollPane = it as JScrollPane
+            val logArea = scrollPane.viewport.view as JTextArea
+            val logs = logArea.text
+            val replacedLogs = logs.replace(searchText, replaceText)
+            logArea.text = replacedLogs
         }
     }
 
