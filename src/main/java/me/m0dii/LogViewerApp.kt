@@ -25,9 +25,7 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
     private val pathList = JList(pathListModel)
     private val addPathButton = JButton("Add Path")
     private val removePathButton = JButton("Remove Path")
-    private val wrapTextCheckbox = JCheckBox("Wrap text")
 
-    private val searchField = JTextField("", 15)
     private val fetchButton = JButton("Fetch Logs")
     private val filterField = JTextField("", 15)
     private val stopButton = JButton("Stop Fetching")
@@ -36,29 +34,43 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
     private val statusLabel = JLabel("Status: Idle")
     private val tabbedPane = JTabbedPane()
 
+    private val linesAroundLabel = JLabel("Lines Around")
+    private val linesAroundModel = SpinnerNumberModel(1, 0, 100, 1)
+    private val linesAroundField = JSpinner(linesAroundModel)
+    private val wrapTextLabel = JLabel("Wrap Text")
+    private val wrapTextCheckbox = JCheckBox()
     private val searchReplaceField = JTextField("", 15)
     private val replaceField = JTextField("", 15)
     private val replaceButton = JButton("Replace")
+
+    private val searchQueryListModel = DefaultListModel<String>()
+    private val searchQueryList = JList(searchQueryListModel)
+    private val addSearchQueryButton = JButton("Add Search Query")
+    private val removeSearchQueryButton = JButton("Remove Search Query")
+    private val moveUpSearchQueryButton = JButton("Move Up")
+    private val moveDownSearchQueryButton = JButton("Move Down")
 
     private var debounceJob: Job? = null
     private val stopFetching = AtomicBoolean(false)
     private val activeSessions = mutableListOf<com.jcraft.jsch.Session>()
 
+    private val textAreaList = mutableListOf<JTextArea>()
+
     init {
         defaultCloseOperation = EXIT_ON_CLOSE
-        setSize(1000, 800)
+        setSize(1400, 800)
         layout = BorderLayout()
 
         val inputPanel = JPanel(GridBagLayout())
         val c = GridBagConstraints()
-        c.insets = Insets(5, 5, 5, 5)
+        c.insets = Insets(3, 3, 3, 3)
         c.fill = GridBagConstraints.HORIZONTAL
         val labelFont = Font("Arial", Font.BOLD, 12)
 
         // User, Password, Key File, Search Query, Filter Output Panel
         val leftPanel = JPanel(GridBagLayout())
         val lc = GridBagConstraints()
-        lc.insets = Insets(5, 5, 5, 5)
+        lc.insets = Insets(3, 3, 3, 3)
         lc.fill = GridBagConstraints.HORIZONTAL
 
         lc.gridx = 0
@@ -82,12 +94,12 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
         lc.gridy = 5
         leftPanel.add(keyFileButton, lc)
 
-        lc.gridx = 0
-        lc.gridy = 6
-        leftPanel.add(JLabel("Search Query:").apply { font = labelFont }, lc)
-        lc.gridx = 0
-        lc.gridy = 7
-        leftPanel.add(searchField, lc)
+//        lc.gridx = 0
+//        lc.gridy = 6
+//        leftPanel.add(JLabel("Search Query:").apply { font = labelFont }, lc)
+//        lc.gridx = 0
+//        lc.gridy = 7
+//        leftPanel.add(searchField, lc)
 
         lc.gridx = 0
         lc.gridy = 8
@@ -99,51 +111,55 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
         // Wrap Length and Search and Replace Panel
         val middleLeftPanel = JPanel(GridBagLayout())
         val mlc = GridBagConstraints()
-        mlc.insets = Insets(5, 5, 5, 5)
+        mlc.insets = Insets(3, 3, 3, 3)
         mlc.fill = GridBagConstraints.HORIZONTAL
 
-        mlc.gridx = 0
-        mlc.gridy = 1
+        mlc.gridx = 0; mlc.gridy = 1
+        middleLeftPanel.add(wrapTextLabel, mlc)
+
+        mlc.gridx = 0; mlc.gridy = 2
         middleLeftPanel.add(wrapTextCheckbox, mlc)
 
-        mlc.gridx = 0
-        mlc.gridy = 2
+        mlc.gridx = 0; mlc.gridy = 3
+        middleLeftPanel.add(linesAroundLabel, mlc)
+
+        mlc.gridx = 0; mlc.gridy = 4
+        middleLeftPanel.add(linesAroundField, mlc)
+
+        mlc.gridx = 0; mlc.gridy = 5
         middleLeftPanel.add(JLabel("Search:").apply { font = labelFont }, mlc)
-        mlc.gridx = 0
-        mlc.gridy = 3
+
+        mlc.gridx = 0; mlc.gridy = 6
         middleLeftPanel.add(searchReplaceField, mlc)
 
-        mlc.gridx = 0
-        mlc.gridy = 4
+        mlc.gridx = 0; mlc.gridy = 7
         middleLeftPanel.add(JLabel("Replace:").apply { font = labelFont }, mlc)
-        mlc.gridx = 0
-        mlc.gridy = 5
+
+        mlc.gridx = 0; mlc.gridy = 8
         middleLeftPanel.add(replaceField, mlc)
 
-        mlc.gridx = 0
-        mlc.gridy = 6
+        mlc.gridx = 0; mlc.gridy = 9
         middleLeftPanel.add(replaceButton, mlc)
 
         // Hosts Panel
         val middleRightPanel = JPanel(GridBagLayout())
         val mrc = GridBagConstraints()
-        mrc.insets = Insets(5, 5, 5, 5)
+        mrc.insets = Insets(3, 3, 3, 3)
         mrc.fill = GridBagConstraints.HORIZONTAL
 
-        mrc.gridx = 0
-        mrc.gridy = 0
+        mrc.gridx = 0; mrc.gridy = 0
         middleRightPanel.add(JLabel("Hosts:").apply { font = labelFont }, mrc)
-        mrc.gridx = 0
-        mrc.gridy = 1
+
+        mrc.gridx = 0; mrc.gridy = 1
         mrc.gridwidth = 2
         mrc.gridheight = 2
         val hostScrollPane = JScrollPane(hostList)
         hostScrollPane.preferredSize = Dimension(200, 205)
         middleRightPanel.add(hostScrollPane, mrc)
+
         mrc.gridwidth = 1
         mrc.gridheight = 1
-        mrc.gridx = 0
-        mrc.gridy = 3
+        mrc.gridx = 0; mrc.gridy = 3
         middleRightPanel.add(addHostButton, mrc)
         mrc.gridx = 1
         middleRightPanel.add(removeHostButton, mrc)
@@ -151,30 +167,70 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
         // Log File Paths Panel
         val rightPanel = JPanel(GridBagLayout())
         val rc = GridBagConstraints()
-        rc.insets = Insets(5, 5, 5, 5)
+        rc.insets = Insets(3, 3, 3, 3)
         rc.fill = GridBagConstraints.HORIZONTAL
 
-        rc.gridx = 0
-        rc.gridy = 0
+        rc.gridx = 0; rc.gridy = 0
         rightPanel.add(JLabel("Log File Paths:").apply { font = labelFont }, rc)
-        rc.gridx = 0
-        rc.gridy = 1
+        rc.gridx = 0; rc.gridy = 1
         rc.gridwidth = 2
         rc.gridheight = 2
         val pathScrollPane = JScrollPane(pathList)
-        pathScrollPane.preferredSize = Dimension(200, 205)
+        pathScrollPane.preferredSize = Dimension(310, 205)
         rightPanel.add(pathScrollPane, rc)
         rc.gridwidth = 1
         rc.gridheight = 1
-        rc.gridx = 0
-        rc.gridy = 3
+        rc.gridx = 0; rc.gridy = 3
         rightPanel.add(addPathButton, rc)
         rc.gridx = 1
         rightPanel.add(removePathButton, rc)
 
+        // Search query panel
+        val searchQueryPanel = JPanel(GridBagLayout())
+        val sqc = GridBagConstraints()
+        sqc.insets = Insets(3, 3, 3, 3)
+        sqc.fill = GridBagConstraints.HORIZONTAL
+
+        sqc.gridx = 0; sqc.gridy = 0
+        searchQueryPanel.add(JLabel("Search Queries:").apply { font = labelFont }, sqc)
+        sqc.gridx = 0; sqc.gridy = 1
+        sqc.gridwidth = 2
+        sqc.gridheight = 2
+        val searchQueryScrollPane = JScrollPane(searchQueryList)
+        searchQueryScrollPane.preferredSize = Dimension(200, 175)
+        searchQueryPanel.add(searchQueryScrollPane, sqc)
+
+        sqc.gridwidth = 1
+        sqc.gridheight = 1
+        sqc.gridx = 0; sqc.gridy = 3
+        searchQueryPanel.add(addSearchQueryButton, sqc)
+        sqc.gridx = 1
+        searchQueryPanel.add(removeSearchQueryButton, sqc)
+        sqc.gridx = 0; sqc.gridy = 4
+        searchQueryPanel.add(moveUpSearchQueryButton, sqc)
+        sqc.gridx = 1
+        searchQueryPanel.add(moveDownSearchQueryButton, sqc)
+
+        moveUpSearchQueryButton.addActionListener {
+            val selectedIndex = searchQueryList.selectedIndex
+            if (selectedIndex > 0) {
+                val element = searchQueryListModel.remove(selectedIndex)
+                searchQueryListModel.add(selectedIndex - 1, element)
+                searchQueryList.selectedIndex = selectedIndex - 1
+            }
+        }
+
+        moveDownSearchQueryButton.addActionListener {
+            val selectedIndex = searchQueryList.selectedIndex
+            if (selectedIndex < searchQueryListModel.size - 1) {
+                val element = searchQueryListModel.remove(selectedIndex)
+                searchQueryListModel.add(selectedIndex + 1, element)
+                searchQueryList.selectedIndex = selectedIndex + 1
+            }
+        }
+
         // Add panels to inputPanel
-        c.gridx = 0
-        c.gridy = 0
+        c.gridx = 0; c.gridy = 0
         inputPanel.add(leftPanel, c)
         c.gridx = 1
         inputPanel.add(middleLeftPanel, c)
@@ -182,6 +238,8 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
         inputPanel.add(middleRightPanel, c)
         c.gridx = 3
         inputPanel.add(rightPanel, c)
+        c.gridx = 4
+        inputPanel.add(searchQueryPanel, c)
 
         val buttonPanel = JPanel(FlowLayout())
         buttonPanel.add(fetchButton)
@@ -217,6 +275,7 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
                     val tabIndex = tabbedPane.indexAtLocation(e.x, e.y)
                     if (tabIndex != -1) {
                         tabbedPane.remove(tabIndex)
+                        textAreaList.removeAt(tabIndex)
                     }
                 }
             }
@@ -266,15 +325,79 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
         replaceButton.addActionListener {
             replaceText()
         }
+
+        wrapTextCheckbox.addActionListener {
+            textAreaList.forEach { it.lineWrap = wrapTextCheckbox.isSelected }
+        }
+
+        addSearchQueryButton.addActionListener {
+            val query = JOptionPane.showInputDialog(this, "Enter Search Query:")
+            if (query != null && query.isNotBlank()) {
+                searchQueryListModel.addElement(query.trim())
+            }
+        }
+
+        removeSearchQueryButton.addActionListener {
+            val selectedQuery = searchQueryList.selectedValue
+            if (selectedQuery != null) {
+                searchQueryListModel.removeElement(selectedQuery)
+            }
+        }
+
+        hostList.addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                if (e.clickCount == 2) {
+                    val index = hostList.locationToIndex(e.point)
+                    if (index != -1) {
+                        val currentHost = hostListModel.getElementAt(index)
+                        val newHost = JOptionPane.showInputDialog(this@LogViewerApp, "Edit Host:", currentHost)
+                        if (newHost != null && newHost.isNotBlank()) {
+                            hostListModel.setElementAt(newHost.trim(), index)
+                        }
+                    }
+                }
+            }
+        })
+
+        pathList.addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                if (e.clickCount == 2) {
+                    val index = pathList.locationToIndex(e.point)
+                    if (index != -1) {
+                        val currentPath = pathListModel.getElementAt(index)
+                        val newPath = JOptionPane.showInputDialog(this@LogViewerApp, "Edit Path:", currentPath)
+                        if (newPath != null && newPath.isNotBlank()) {
+                            pathListModel.setElementAt(newPath.trim(), index)
+                        }
+                    }
+                }
+            }
+        })
+
+        searchQueryList.addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                if (e.clickCount == 2) {
+                    val index = searchQueryList.locationToIndex(e.point)
+                    if (index != -1) {
+                        val currentQuery = searchQueryListModel.getElementAt(index)
+                        val newQuery =
+                            JOptionPane.showInputDialog(this@LogViewerApp, "Edit Search Query:", currentQuery)
+                        if (newQuery != null && newQuery.isNotBlank()) {
+                            searchQueryListModel.setElementAt(newQuery.trim(), index)
+                        }
+                    }
+                }
+            }
+        })
     }
 
     private fun fetchLogs() {
-        if (hostListModel.isEmpty || pathListModel.isEmpty) {
-            JOptionPane.showMessageDialog(this, "Please add at least one host and log path.")
+        if (hostListModel.isEmpty || pathListModel.isEmpty || searchQueryListModel.isEmpty) {
+            JOptionPane.showMessageDialog(this, "Please add at least one host, log path, and search query.")
             return
         }
 
-        stopFetching.set(false) // Reset the stopFetching flag
+        stopFetching.set(false)
 
         fetchButton.isEnabled = false
         hitCountLabel.text = "Hits: 0"
@@ -283,6 +406,7 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
         CoroutineScope(Dispatchers.IO).launch {
             val hosts = hostListModel.elements().toList()
             val paths = pathListModel.elements().toList()
+            val searchQueries = searchQueryListModel.elements().toList()
 
             fetchLogsFromServers(
                 hosts,
@@ -290,13 +414,8 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
                 String(passField.password),
                 privateKeyFile,
                 paths,
-                searchField.text
+                searchQueries
             )
-
-            withContext(Dispatchers.Main) {
-                fetchButton.isEnabled = true
-                statusLabel.text = "Status: Fetching complete"
-            }
         }
     }
 
@@ -306,30 +425,33 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
         password: String,
         privateKey: File?,
         paths: List<String>,
-        searchQuery: String
+        searchQueries: List<String>
     ) {
-        for (host in hosts) {
-            if (stopFetching.get()) {
-                withContext(Dispatchers.Main) {
-                    statusLabel.text = "Status: Fetching stopped"
+        coroutineScope {
+            val jobs = hosts.map { host ->
+                async {
+                    if (stopFetching.get()) return@async
+
+                    val logArea = JTextArea().apply { font = Font("Monospaced", Font.PLAIN, 12) }
+                    logArea.isEditable = true
+                    logArea.lineWrap = wrapTextCheckbox.isSelected
+                    logArea.wrapStyleWord = wrapTextCheckbox.isSelected
+                    val scrollPane = JScrollPane(logArea)
+                    withContext(Dispatchers.Main) {
+                        tabbedPane.addTab(host, scrollPane)
+                    }
+
+                    textAreaList.add(logArea)
+
+                    fetchLogsFromServer(host, user, password, privateKey, paths, searchQueries, logArea)
                 }
-                return
             }
+            jobs.awaitAll()
+        }
 
-            val logArea = JTextArea()
-                .apply { font = Font("Monospaced", Font.PLAIN, 12) }
-
-            logArea.isEditable = true
-            logArea.lineWrap = wrapTextCheckbox.isSelected
-            logArea.wrapStyleWord = wrapTextCheckbox.isSelected
-            val scrollPane = JScrollPane(logArea)
-            withContext(Dispatchers.Main) {
-                tabbedPane.addTab(host, scrollPane)
-            }
-
-            for (path in paths) {
-                fetchLogsFromServer(host, user, password, privateKey, path, searchQuery, logArea)
-            }
+        withContext(Dispatchers.Main) {
+            fetchButton.isEnabled = true
+            statusLabel.text = "Status: Fetching complete"
         }
     }
 
@@ -338,8 +460,8 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
         user: String,
         password: String,
         privateKey: File?,
-        logPath: String,
-        searchQuery: String,
+        paths: List<String>,
+        searchQueries: List<String>,
         logArea: JTextArea
     ) {
         val jsch = JSch()
@@ -362,32 +484,57 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
             throw e
         }
 
-        val command = "zgrep -H \"$searchQuery\" $logPath"
-        val channel = session.openChannel("exec") as com.jcraft.jsch.ChannelExec
-        channel.setCommand(command)
-
-        val inputStream = channel.inputStream
-        channel.connect()
-
-        val reader = BufferedReader(InputStreamReader(inputStream), 8192 * 4) // Increase buffer size
-        var line: String?
-        var hitCount = 0
-        var lineNumber = 1
-
-        while (withContext(Dispatchers.IO) {
-                reader.readLine()
-            }.also { line = it } != null) {
-            if (stopFetching.get()) break
-            hitCount++
-            withContext(Dispatchers.Main) {
-                val caretPosition = logArea.caretPosition
-                logArea.append("%4d. %s\n".format(lineNumber++, line))
-                logArea.caretPosition = caretPosition
-                hitCountLabel.text = "Hits: $hitCount"
-            }
+        var args = "-H -i"
+        if (linesAroundModel.value != 0) {
+            args += " -C ${linesAroundModel.value}"
         }
 
-        channel.disconnect()
+        withContext(Dispatchers.Main) {
+            logArea.text = ""
+        }
+
+        for (path in paths) {
+            val command = if (searchQueries.size == 1) {
+                "zgrep $args '${searchQueries[0]}' $path"
+            } else {
+                "zgrep $args '${searchQueries[0]}' $path | " + searchQueries.drop(1)
+                    .joinToString(" | ") { "grep -i '$it'" }
+            }
+
+            println("Running command: $command on $host")
+            val channel = session.openChannel("exec") as com.jcraft.jsch.ChannelExec
+            channel.setCommand(command)
+
+            val inputStream = channel.inputStream
+            channel.connect()
+
+            val reader = BufferedReader(InputStreamReader(inputStream), 8192 * 4)
+            var line: String?
+            var hitCount = 0
+            var lineNumber = 1
+
+            withContext(Dispatchers.Main) {
+                logArea.append("Executing command on host $host:\n")
+                logArea.append("$ ssh $user@$host $command\n\n")
+            }
+
+            while (withContext(Dispatchers.IO) {
+                    reader.readLine()
+                }.also { line = it } != null) {
+                if (stopFetching.get()) break
+                if (!line?.isBlank()!!) {
+                    hitCount++
+                }
+                withContext(Dispatchers.Main) {
+                    val caretPosition = logArea.caretPosition
+                    logArea.append("%4d. %s\n".format(lineNumber++, line))
+                    logArea.caretPosition = caretPosition
+                    hitCountLabel.text = "Hits: $hitCount"
+                }
+            }
+            channel.disconnect()
+        }
+
         session.disconnect()
         activeSessions.remove(session)
     }
@@ -456,6 +603,8 @@ class LogViewerApp : JFrame("SSH Log Viewer") {
         stopFetching.set(true)
         activeSessions.forEach { it.disconnect() }
         activeSessions.clear()
+        statusLabel.text = "Status: Fetching cancelled"
+        fetchButton.isEnabled = true
     }
 }
 
